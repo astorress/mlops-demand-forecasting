@@ -1,0 +1,12 @@
+# Dependencias del pipeline de ML (las usan Airflow, el contenedor app y Jupyter).
+# Versiones fijas: Great Expectations 1.x, Evidently 0.7+ y MLflow 3 cambiaron sus APIs.
+mlflow==2.17.2
+lightgbm==4.5.0
+optuna==4.1.0
+scikit-learn==1.5.2
+pandas==2.2.3
+numpy==1.26.4
+pyarrow==17.0.0
+great-expectations==0.18.22
+evidently==0.4.40
+matplotlib==3.9.2

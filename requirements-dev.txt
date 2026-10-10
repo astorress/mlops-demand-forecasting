@@ -1,0 +1,14 @@
+-r requirements.txt
+
+# Jupyter
+jupyterlab==4.2.5
+ipykernel==6.29.5
+nbconvert==7.16.4
+
+# Testing
+pytest==8.3.3
+
+# Calidad de código
+black==24.10.0
+flake8==7.1.1
+isort==5.13.2

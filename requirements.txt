@@ -1,0 +1,18 @@
+-r requirements-pipeline.txt
+
+# MLflow 2.17 no es compatible con SQLAlchemy 2.1 (Airflow ya fija la suya, 1.4)
+sqlalchemy==2.0.36
+
+# Serving
+flask==3.0.3
+pydantic==2.9.2
+
+# Visualización (notebooks)
+plotly==5.24.1
+seaborn==0.13.2
+
+# Cloud (deploy opcional en SageMaker)
+boto3==1.35.54
+
+# Utilidades
+requests==2.32.3

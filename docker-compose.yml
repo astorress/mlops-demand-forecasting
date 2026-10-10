@@ -1,0 +1,240 @@
+# =============================================================================
+# MLOps Demand Forecasting - Docker Compose
+# Levanta: PostgreSQL + MLflow + Airflow + JupyterLab
+# Uso: make up   (o: docker compose up -d --build --wait)
+# =============================================================================
+
+# Variables compartidas por todo lo que ejecuta código del proyecto
+x-project-env: &project-env
+  MLFLOW_TRACKING_URI: http://mlflow-server:5000
+  MLFLOW_EXPERIMENT_NAME: ${MLFLOW_EXPERIMENT_NAME:-demand_forecasting}
+  MLFLOW_MODEL_NAME: ${MLFLOW_MODEL_NAME:-demand_forecaster}
+  DRIFT_THRESHOLD: ${DRIFT_THRESHOLD:-0.2}
+
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: docker/airflow.Dockerfile
+  image: mlops-demand-forecasting-airflow:latest
+  user: "${AIRFLOW_UID:-50000}:0"
+  environment:
+    <<: *project-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-mlops}:${POSTGRES_PASSWORD:-mlops_secret}@postgres:5432/${POSTGRES_DB_AIRFLOW:-airflow}
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY:-ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg=}
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY:-mlops-demo-webserver-secret}
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
+    # MLflow intenta leer el commit de git; en el contenedor no hay repo
+    GIT_PYTHON_REFRESH: quiet
+    # Paths de datos dentro del contenedor
+    PROJECT_ROOT: /opt/mlops-demo
+    DATA_RAW_PATH: /opt/mlops-demo/data/raw/demand.csv
+    DATA_PROCESSED_PATH: /opt/mlops-demo/data/processed/
+  volumes:
+    - ./airflow/dags:/opt/airflow/dags
+    - ./airflow/plugins:/opt/airflow/plugins
+    - ./src:/opt/mlops-demo/src
+    - ./data:/opt/mlops-demo/data
+    - ./artifacts:/opt/mlops-demo/artifacts
+    - airflow-logs:/opt/airflow/logs
+  depends_on:
+    postgres:
+      condition: service_healthy
+    mlflow-server:
+      condition: service_healthy
+
+x-app: &app
+  build:
+    context: .
+    dockerfile: docker/app.Dockerfile
+  image: mlops-demand-forecasting-app:latest
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL: metadata store de Airflow y backend store de MLflow
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    container_name: mlops-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mlops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mlops_secret}
+      POSTGRES_DB: ${POSTGRES_DB_AIRFLOW:-airflow}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # Script de inicialización: crea la base de datos de MLflow
+      - ./docker/postgres/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER:-mlops}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # MLflow Server: tracking + registry en PostgreSQL. Los artefactos los guarda
+  # el propio servidor en un volumen (--serve-artifacts), así los clientes los
+  # suben por HTTP y no necesitan credenciales de S3.
+  # ---------------------------------------------------------------------------
+  mlflow-server:
+    <<: *app
+    container_name: mlops-mlflow
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${MLFLOW_PORT:-5050}:5000"
+    volumes:
+      - mlflow-artifacts:/mlartifacts
+    command: >
+      mlflow server
+        --backend-store-uri postgresql+psycopg2://${POSTGRES_USER:-mlops}:${POSTGRES_PASSWORD:-mlops_secret}@postgres:5432/${POSTGRES_DB_MLFLOW:-mlflow}
+        --serve-artifacts
+        --artifacts-destination /mlartifacts
+        --host 0.0.0.0
+        --port 5000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Airflow Init: migra la base de datos y crea el usuario admin
+  # ---------------------------------------------------------------------------
+  airflow-init:
+    <<: *airflow-common
+    container_name: mlops-airflow-init
+    # Se mantiene el entrypoint de la imagen: registra AIRFLOW_UID como usuario
+    # válido dentro del contenedor y luego ejecuta este bash.
+    command:
+      - bash
+      - -c
+      - |
+        set -e
+        airflow db migrate
+        airflow users create \
+          --username admin \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@example.com \
+          --password admin
+        echo "Airflow inicializado correctamente"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # ---------------------------------------------------------------------------
+  # Airflow Webserver: UI de Airflow
+  # ---------------------------------------------------------------------------
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: mlops-airflow-webserver
+    command: webserver
+    ports:
+      - "${AIRFLOW_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      mlflow-server:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # Airflow Scheduler: ejecuta las tareas de los DAGs
+  # ---------------------------------------------------------------------------
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: mlops-airflow-scheduler
+    command: scheduler
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8974/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      mlflow-server:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # JupyterLab: notebooks explicativos, con acceso a MLflow por la red interna
+  # ---------------------------------------------------------------------------
+  jupyter:
+    <<: *app
+    container_name: mlops-jupyter
+    environment:
+      <<: *project-env
+    working_dir: /app
+    volumes:
+      - .:/app
+    ports:
+      - "${JUPYTER_PORT:-8888}:8888"
+    command: >
+      jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root
+        --ServerApp.token='' --ServerApp.password='' --notebook-dir=/app
+    depends_on:
+      mlflow-server:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # API Flask (perfil "serving"): necesita un modelo en Production → make serve-flask
+  # ---------------------------------------------------------------------------
+  api:
+    <<: *app
+    container_name: mlops-api
+    profiles: ["serving"]
+    environment:
+      <<: *project-env
+      FLASK_PORT: 8000
+    working_dir: /app
+    volumes:
+      - .:/app
+    ports:
+      - "${FLASK_PORT:-8000}:8000"
+    command: python src/serving/flask_app.py
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    depends_on:
+      mlflow-server:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # Contenedor de herramientas (perfil "tools"): lo usan los comandos del Makefile
+  # (generate-data, preprocess, train, hpo, evaluate, drift, test).
+  # ---------------------------------------------------------------------------
+  app:
+    <<: *app
+    profiles: ["tools"]
+    environment:
+      <<: *project-env
+    working_dir: /app
+    volumes:
+      - .:/app
+    depends_on:
+      mlflow-server:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  mlflow-artifacts:
+  airflow-logs:
