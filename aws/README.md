@@ -30,7 +30,7 @@ Todas las cargas de SageMaker (processing, training y serving) corren la imagen 
 
 ¿Algún servicio o término no te suena? [`CONCEPTOS.md`](CONCEPTOS.md) explica cada servicio de AWS que usa el proyecto, y el [`CONCEPTOS.md` de la raíz](../CONCEPTOS.md), la teoría general de MLOps.
 
-Los recursos se crean como `Infrastructure as Code` y se despliegan con `Serverless Framework` v4. Sigue las convenciones del proyecto de referencia `mlops-customer-churn`, pero con la infraestructura base (buckets, Athena, SNS, Studio) en el mismo proyecto, como un stack más.
+Los recursos se crean como `Infrastructure as Code` y se despliegan con `Serverless Framework` v4. La infraestructura base (buckets, Athena, SNS, Studio) vive en el mismo proyecto, como un stack más.
 
 ### Arquitectura
 

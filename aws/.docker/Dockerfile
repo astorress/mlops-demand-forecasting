@@ -59,7 +59,7 @@ RUN chown -R $USER:$USER /usr/local/lib/node_modules /usr/local/bin
 
 
 ######## ML BASE IMAGE ########
-# Herramientas comunes de los proyectos de ML: tests, linters, notebooks, SDK
+# Herramientas de desarrollo: tests, linters, notebooks, SDK
 # de AWS y el CLI de Docker (construye/publica la imagen del modelo con el
 # daemon del host, montado en /var/run/docker.sock). Las librerías de ML NO
 # se instalan aquí: cada proyecto fija las suyas en container/requirements.txt,

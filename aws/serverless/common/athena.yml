@@ -3,7 +3,7 @@ Resources:
     Type: AWS::Athena::WorkGroup
     Properties:
       Name: ${self:custom.athena.workGroupName}
-      Description: Workgroup de Athena compartido por los proyectos MLOps
+      Description: Workgroup de Athena del proyecto MLOps
       RecursiveDeleteOption: true
       State: ENABLED
       WorkGroupConfiguration:
