@@ -25,10 +25,10 @@ x-airflow-common: &airflow-common
     <<: *project-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-mlops}:${POSTGRES_PASSWORD:-mlops_secret}@postgres:5432/${POSTGRES_DB_AIRFLOW:-airflow}
-    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY:-ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg=}
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY:?Ejecuta make setup para generar .envs/config.env}
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
-    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY:-mlops-demo-webserver-secret}
+    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY:?Ejecuta make setup para generar .envs/config.env}
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
     # MLflow intenta leer el commit de git; en el contenedor no hay repo
     GIT_PYTHON_REFRESH: quiet

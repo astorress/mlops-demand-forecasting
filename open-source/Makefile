@@ -21,12 +21,15 @@ help:
 	@echo ""
 	@grep -E '^## ' Makefile | sed 's/## /  make /'
 
-## setup: Crea .envs/config.env desde el .example (con tu UID para Airflow) y las carpetas de datos
+## setup: Crea .envs/config.env desde el .example (con tu UID y claves nuevas para Airflow) y las carpetas de datos
 setup:
 	@echo "==> Configurando entorno..."
 	@if [ ! -f .envs/config.env ]; then \
-		sed "s/^AIRFLOW_UID=.*/AIRFLOW_UID=$$(id -u)/" .envs/config.env.example > .envs/config.env; \
-		echo "  [OK] .envs/config.env creado desde .envs/config.env.example"; \
+		sed -e "s/^AIRFLOW_UID=.*/AIRFLOW_UID=$$(id -u)/" \
+			-e "s|^AIRFLOW__CORE__FERNET_KEY=.*|AIRFLOW__CORE__FERNET_KEY=$$(openssl rand -base64 32 | tr '+/' '-_')|" \
+			-e "s|^AIRFLOW__WEBSERVER__SECRET_KEY=.*|AIRFLOW__WEBSERVER__SECRET_KEY=$$(openssl rand -hex 32)|" \
+			.envs/config.env.example > .envs/config.env; \
+		echo "  [OK] .envs/config.env creado desde .envs/config.env.example (con claves de Airflow nuevas)"; \
 	else \
 		echo "  [SKIP] .envs/config.env ya existe"; \
 	fi
