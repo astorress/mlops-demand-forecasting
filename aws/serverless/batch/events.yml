@@ -1,0 +1,25 @@
+Resources:
+  BatchTransformFailedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: ${self:custom.servicePrefix}-TransformFailed
+      Description: Falló el transform job del batch scoring
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.sagemaker
+        detail-type:
+          - SageMaker Transform Job State Change
+        detail:
+          TransformJobStatus:
+            - Failed
+          TransformJobName:
+            - prefix: ${self:custom.project}-
+      Targets:
+        - Id: Notifications
+          Arn: ${self:custom.sns.notificationsTopicArn}
+          InputTransformer:
+            InputPathsMap:
+              job: $.detail.TransformJobName
+              reason: $.detail.FailureReason
+            InputTemplate: '"[${self:custom.stage}] demand-forecasting batch scoring job <job> FAILED: <reason>"'

@@ -1,0 +1,23 @@
+Resources:
+  # Model Registry: un grupo por proyecto, un package por versión entrenada.
+  ModelPackageGroup:
+    Type: AWS::SageMaker::ModelPackageGroup
+    Properties:
+      ModelPackageGroupName: ${self:custom.registry.modelPackageGroupName}
+      ModelPackageGroupDescription: Pronóstico horario de demanda eléctrica (LightGBM)
+
+  TrainingPipeline:
+    Type: AWS::SageMaker::Pipeline
+    DependsOn:
+      - ModelPackageGroup
+      - PipelineAthenaWorkGroup
+    Properties:
+      PipelineName: ${self:custom.pipeline.name}
+      PipelineDisplayName: ${self:custom.pipeline.name}
+      PipelineDescription: Athena → validar/split temporal → baseline → entrenar → evaluar → registrar
+      RoleArn: !GetAtt SageMakerExecutionRole.Arn
+      PipelineDefinition:
+        PipelineDefinitionBody: ${file(./pipeline-definition.js)}
+      Tags:
+        - Key: ImageTag
+          Value: ${self:custom.image.tag}

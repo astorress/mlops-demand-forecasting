@@ -1,0 +1,32 @@
+Resources:
+  StudioDomain:
+    Type: AWS::SageMaker::Domain
+    Properties:
+      DomainName: ${self:custom.studio.domainName}
+      AuthMode: IAM
+      AppNetworkAccessType: PublicInternetOnly
+      VpcId: !Ref StudioVpc
+      SubnetIds:
+        - !Ref StudioSubnetA
+        - !Ref StudioSubnetB
+      DefaultUserSettings:
+        ExecutionRole: !GetAtt StudioExecutionRole.Arn
+        StudioWebPortal: ENABLED
+        DefaultLandingUri: 'studio::'
+        JupyterLabAppSettings:
+          AppLifecycleManagement:
+            IdleSettings:
+              LifecycleManagement: ENABLED
+              IdleTimeoutInMinutes: ${self:custom.studio.idleTimeoutInMinutes}
+      DefaultSpaceSettings:
+        ExecutionRole: !GetAtt StudioExecutionRole.Arn
+
+  DeveloperUserProfile:
+    Type: AWS::SageMaker::UserProfile
+    Properties:
+      DomainId: !GetAtt StudioDomain.DomainId
+      UserProfileName: ${self:custom.developer}
+
+Outputs:
+  StudioDomainId:
+    Value: !GetAtt StudioDomain.DomainId

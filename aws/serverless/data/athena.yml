@@ -1,0 +1,78 @@
+# Consultas guardadas (consola de Athena → Saved queries) para explorar cada zona.
+Resources:
+  DemandProfileQuery:
+    Type: AWS::Athena::NamedQuery
+    Properties:
+      Name: ${self:custom.project} - perfil de demanda por hora
+      Description: EDA sobre la última partición curada (laborable vs fin de semana)
+      Database: !Ref GlueDatabase
+      WorkGroup: ${self:custom.athena.workGroupName}
+      QueryString: |
+        SELECT hour,
+               round(avg(CASE WHEN is_weekend = 0 THEN demand_kwh END), 1) AS weekday_kwh,
+               round(avg(CASE WHEN is_weekend = 1 THEN demand_kwh END), 1) AS weekend_kwh,
+               round(avg(temperature_c), 1) AS avg_temperature_c
+        FROM ${self:custom.glue.curatedTableName}
+        WHERE ingestion_date = (SELECT max(ingestion_date) FROM ${self:custom.glue.curatedTableName})
+        GROUP BY hour
+        ORDER BY hour;
+
+  DataFreshnessQuery:
+    Type: AWS::Athena::NamedQuery
+    Properties:
+      Name: ${self:custom.project} - frescura y volumen de los datos
+      Description: Filas, rango de fechas y promedios por ingesta (detecta drift entre cargas)
+      Database: !Ref GlueDatabase
+      WorkGroup: ${self:custom.athena.workGroupName}
+      QueryString: |
+        SELECT ingestion_date,
+               count(*) AS hours,
+               min("timestamp") AS first_hour,
+               max("timestamp") AS last_hour,
+               round(avg(demand_kwh), 1) AS avg_demand_kwh,
+               round(avg(temperature_c), 2) AS avg_temperature_c
+        FROM ${self:custom.glue.curatedTableName}
+        GROUP BY ingestion_date
+        ORDER BY ingestion_date DESC;
+
+  RawVsCuratedQuery:
+    Type: AWS::Athena::NamedQuery
+    Properties:
+      Name: ${self:custom.project} - filas raw vs curated
+      Description: La tabla raw que descubre el crawler vs la tabla curada declarada
+      Database: !Ref GlueDatabase
+      WorkGroup: ${self:custom.athena.workGroupName}
+      QueryString: |
+        SELECT 'raw' AS zone, ingestion_date, count(*) AS rows
+        FROM ${self:custom.glue.rawTablePrefix}demand_forecasting
+        GROUP BY ingestion_date
+        UNION ALL
+        SELECT 'curated', ingestion_date, count(*)
+        FROM ${self:custom.glue.curatedTableName}
+        GROUP BY ingestion_date
+        ORDER BY ingestion_date DESC, zone;
+
+  ForecastAccuracyQuery:
+    Type: AWS::Athena::NamedQuery
+    Properties:
+      Name: ${self:custom.project} - precisión del batch (MAPE por día)
+      Description: Último pronóstico batch contra la demanda real (calidad del modelo en producción)
+      Database: !Ref GlueDatabase
+      WorkGroup: ${self:custom.athena.workGroupName}
+      QueryString: |
+        WITH latest AS (
+          SELECT * FROM ${self:custom.glue.predictionsTableName}
+          WHERE run_date = (SELECT max(run_date) FROM ${self:custom.glue.predictionsTableName})
+        ),
+        actual AS (
+          SELECT "timestamp", demand_kwh FROM ${self:custom.glue.curatedTableName}
+          WHERE ingestion_date = (SELECT max(ingestion_date) FROM ${self:custom.glue.curatedTableName})
+        )
+        SELECT substr(p."timestamp", 1, 10) AS day,
+               count(*) AS hours,
+               round(avg(abs(a.demand_kwh - p.demand_kwh_forecast) / a.demand_kwh) * 100, 2) AS mape_pct,
+               round(sqrt(avg(power(a.demand_kwh - p.demand_kwh_forecast, 2))), 1) AS rmse_kwh
+        FROM latest p
+        JOIN actual a ON a."timestamp" = p."timestamp"
+        GROUP BY substr(p."timestamp", 1, 10)
+        ORDER BY day;

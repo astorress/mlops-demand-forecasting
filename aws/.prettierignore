@@ -1,0 +1,15 @@
+# Dependencies
+node_modules
+package-lock.json
+
+# Environment
+.envs
+
+# Build / data
+data
+models
+htmlcov
+
+# Código Python (lo formatean yapf/isort)
+src
+tests

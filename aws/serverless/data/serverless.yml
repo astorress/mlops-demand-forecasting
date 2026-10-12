@@ -1,0 +1,139 @@
+# Capa de datos: raw → curated → (predictions), catalogada en Glue y
+# consultada con Athena. Por eventos: un archivo raw nuevo arranca el workflow
+# de Glue (crawler → job de curación + data quality); una curación exitosa
+# arranca el entrenamiento (regla en serverless/pipeline).
+service: demand-forecasting-data
+frameworkVersion: ^4.43.0
+configValidationMode: error
+
+provider:
+  name: aws
+  stage: dev
+  region: us-east-1
+  runtime: python3.13
+  architecture: arm64
+  stackName: ${self:custom.app}-${self:service}
+  versionFunctions: false
+  deploymentBucket:
+    name: ${self:custom.s3.deploymentBucketName.${self:custom.stage}}
+  logRetentionInDays: ${self:custom.lambda.logRetentionInDays.${self:custom.stage}}
+
+package:
+  individually: true
+  patterns:
+    - '!./**'
+
+functions:
+  - ${file(functions.yml)}
+
+resources:
+  - ${file(iam.yml)}
+  - ${file(glue.yml)}
+  - ${file(events.yml)}
+  - ${file(athena.yml)}
+  - ${file(ssm.yml)}
+  - ${file(cfn-collisions.yml)}
+
+plugins:
+  - serverless-deployment-bucket
+  - '@serverless/safeguards-plugin'
+  - serverless-s3-sync
+
+custom:
+  org: ${env:ORG}
+  app: mlops
+  project: demand-forecasting
+  stage: ${opt:stage, self:provider.stage}
+  safeguards:
+    - safeguard: framework-version
+      enforcementLevel: warning
+      config: ${self:frameworkVersion}
+    - safeguard: allowed-regions
+      enforcementLevel: error
+      config:
+        - ${self:provider.region}
+    - safeguard: no-wild-iam-role-statements
+      enforcementLevel: warning
+    - safeguard: allowed-runtimes
+      config:
+        - ${self:provider.runtime}
+    - safeguard: allowed-function-names
+      enforcementLevel: warning
+      config: ${self:custom.servicePrefix}-${FUNCTION}
+    - safeguard: allowed-stages
+      enforcementLevel: error
+      config:
+        - dev
+        - test
+        - prod
+  servicePrefix: ${self:custom.app}-${self:service}
+  developer: ${env:DEVELOPER}
+  # Histórico que genera IngestDataset si el evento no dice otra cosa: el
+  # mismo rango del dataset del proyecto open source.
+  dataset:
+    startDate: '2022-01-01'
+    endDate: '2024-12-31'
+  prefixes:
+    raw: raw/demand_forecasting
+    curated: curated/demand_forecasting/demand
+    predictions: predictions/demand_forecasting
+    code: code/demand-forecasting/glue
+    glueTemp: tmp/demand-forecasting/glue
+  glue:
+    databaseName: demand_forecasting
+    rawTablePrefix: raw_
+    curatedTableName: demand
+    predictionsTableName: predictions
+    crawlerName: ${self:custom.servicePrefix}-RawCrawler
+    jobName: ${self:custom.servicePrefix}-CurateDemand
+    workflowName: ${self:custom.servicePrefix}-Ingestion
+    version: '5.0'
+    workerType: G.1X
+    numberOfWorkers: 2
+    # Segundos que el trigger EVENT espera para juntar varios archivos raw.
+    eventBatchWindow: 120
+    # Glue Data Quality (DQDL): los mismos chequeos de Great Expectations del
+    # proyecto open source. Lo evalúa el job de curación (falla el job) y queda
+    # asociado a la tabla curada (re-ejecutable desde la consola).
+    dataQualityRuleset: >-
+      Rules = [
+        RowCount > 1000,
+        IsComplete "timestamp",
+        IsUnique "timestamp",
+        IsComplete "demand_kwh",
+        ColumnValues "demand_kwh" > 0,
+        IsComplete "temperature_c",
+        ColumnValues "temperature_c" >= -10,
+        ColumnValues "temperature_c" <= 50,
+        ColumnValues "hour" >= 0,
+        ColumnValues "hour" <= 23,
+        ColumnValues "month" >= 1,
+        ColumnValues "month" <= 12,
+        ColumnValues "is_holiday" >= 0,
+        ColumnValues "is_holiday" <= 1,
+        IsComplete "demand_lag_24h",
+        IsComplete "demand_lag_168h",
+        IsComplete "demand_rolling_mean_7d"
+      ]
+  lambda:
+    logRetentionInDays:
+      dev: 1
+      test: 3
+      prod: 7
+  s3:
+    deploymentBucketName:
+      dev: ${self:provider.region}.${self:custom.org}.${self:custom.app}.${self:custom.stage}.${self:custom.developer}.deploys
+      test: ${self:provider.region}.${self:custom.org}.${self:custom.app}.${self:custom.stage}.deploys
+      prod: ${self:provider.region}.${self:custom.org}.${self:custom.app}.${self:custom.stage}.deploys
+    dataLakeBucketName: ${ssm:/${self:custom.app}-common-infrastructure/DataLakeBucketName}
+    dataLakeBucketArn: ${ssm:/${self:custom.app}-common-infrastructure/DataLakeBucketArn}
+    artifactsBucketName: ${ssm:/${self:custom.app}-common-infrastructure/ArtifactsBucketName}
+    artifactsBucketArn: ${ssm:/${self:custom.app}-common-infrastructure/ArtifactsBucketArn}
+  athena:
+    workGroupName: ${ssm:/${self:custom.app}-common-infrastructure/AthenaWorkGroupName}
+  # Script del job de Glue → bucket de artefactos en cada deploy.
+  s3Sync:
+    - bucketName: ${self:custom.s3.artifactsBucketName}
+      bucketPrefix: ${self:custom.prefixes.code}/
+      localDir: ../../src/jobs/glue
+      deleteRemoved: true

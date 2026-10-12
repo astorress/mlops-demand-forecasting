@@ -1,0 +1,7 @@
+# Renombra el export del deployment bucket que genera Serverless: con el
+# nombre por defecto choca entre stacks y el deploy falla con "Stack with id
+# <stack-name> not found" aunque el stack haya quedado bien.
+Outputs:
+  ServerlessDeploymentBucketName:
+    Export:
+      Name: ${self:custom.servicePrefix}-ServerlessDeploymentBucketName

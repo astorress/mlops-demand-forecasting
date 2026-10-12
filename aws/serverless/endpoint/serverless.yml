@@ -1,0 +1,128 @@
+# Capa de inferencia online: despliega el model package *aprobado* (resuelto
+# del contrato de despliegue en SSM que escribe OnModelApproved) como endpoint
+# en tiempo real con data capture, actualizaciones blue/green con rollback
+# automático, monitoreo diario de data drift (Lambda DataDrift) y una API HTTP.
+# Equivale a la API Flask + el DAG de monitoreo del proyecto open source.
+#
+# Redesplegar este stack tras una aprobación = versión nueva en producción
+# (Model + EndpointConfig se reemplazan, el Endpoint se actualiza). Cuesta
+# dinero mientras existe: `sls remove` al terminar.
+service: demand-forecasting-endpoint
+frameworkVersion: ^4.43.0
+configValidationMode: error
+
+provider:
+  name: aws
+  stage: dev
+  region: us-east-1
+  runtime: python3.13
+  architecture: arm64
+  stackName: ${self:custom.app}-${self:service}
+  versionFunctions: false
+  deploymentBucket:
+    name: ${self:custom.s3.deploymentBucketName.${self:custom.stage}}
+  logRetentionInDays: ${self:custom.lambda.logRetentionInDays.${self:custom.stage}}
+  httpApi:
+    name: ${self:custom.servicePrefix}
+
+package:
+  individually: true
+  patterns:
+    - '!./**'
+
+functions:
+  - ${file(functions.yml)}
+
+resources:
+  - ${file(iam.yml)}
+  - ${file(sagemaker.yml)}
+  - ${file(alarms.yml)}
+  - ${file(api.yml)}
+  - ${file(ssm.yml)}
+  - ${file(cfn-collisions.yml)}
+
+plugins:
+  - serverless-deployment-bucket
+  - '@serverless/safeguards-plugin'
+
+custom:
+  org: ${env:ORG}
+  app: mlops
+  project: demand-forecasting
+  stage: ${opt:stage, self:provider.stage}
+  safeguards:
+    - safeguard: framework-version
+      enforcementLevel: warning
+      config: ${self:frameworkVersion}
+    - safeguard: allowed-regions
+      enforcementLevel: error
+      config:
+        - ${self:provider.region}
+    - safeguard: no-wild-iam-role-statements
+      enforcementLevel: warning
+    - safeguard: allowed-runtimes
+      config:
+        - ${self:provider.runtime}
+    - safeguard: allowed-function-names
+      enforcementLevel: warning
+      config: ${self:custom.servicePrefix}-${FUNCTION}
+    - safeguard: allowed-stages
+      enforcementLevel: error
+      config:
+        - dev
+        - test
+        - prod
+  servicePrefix: ${self:custom.app}-${self:service}
+  developer: ${env:DEVELOPER}
+  pipelineSsmPrefix: /${self:custom.app}-demand-forecasting-pipeline
+  # Contrato de despliegue (ver serverless/pipeline/ssm.yml). Falla con un
+  # mensaje claro mientras no haya una versión aprobada.
+  model:
+    packageArn: ${file(./approved-model.js):packageArn}
+    baselineConstraintsUri: ${file(./approved-model.js):baselineConstraintsUri}
+    baselineStatisticsUri: ${file(./approved-model.js):baselineStatisticsUri}
+    executionRoleArn: ${ssm:${self:custom.pipelineSsmPrefix}/SageMakerExecutionRoleArn}
+  endpoint:
+    # Nombre estable: los clientes no cambian cuando sale otra versión.
+    name: ${self:custom.project}
+    # La instancia más pequeña, igual en todos los stages (proyecto de
+    # aprendizaje). SageMaker no autoescala instancias burstable (ml.t2.*):
+    # el endpoint corre siempre exactamente una.
+    instanceType: ml.t2.medium
+    instanceCount: 1
+    dataCapturePercentage:
+      dev: 100
+      test: 100
+      prod: 20
+  # Protección de la API pública: peticiones por segundo de toda la API.
+  api:
+    throttlingRateLimit: 10
+    throttlingBurstLimit: 20
+  # Monitoreo de data drift (reemplaza a SageMaker Model Monitor, cerrado a
+  # clientes nuevos): Lambda DataDrift + alarma de CloudWatch sobre
+  # MaxFeatureDrift, que además dispara el reentrenamiento (serverless/pipeline).
+  monitoring:
+    # 00:15 UTC: analiza las 24 horas completas anteriores (las features de
+    # demanda tienen ciclo diario; una ventana de un día es comparable con el
+    # perfil de entrenamiento).
+    schedule: cron(15 0 * * ? *)
+    lookbackHours: 24
+    metricNamespace: Mlops/DemandForecasting
+    # PSI por encima de este valor = drift significativo (igual que Baseline).
+    driftThreshold: 0.2
+  prefixes:
+    dataCapture: data-capture/${self:custom.project}
+    monitoring: monitoring/${self:custom.project}
+  lambda:
+    logRetentionInDays:
+      dev: 1
+      test: 3
+      prod: 7
+  sns:
+    notificationsTopicArn: ${ssm:/${self:custom.app}-common-infrastructure/NotificationsTopicArn}
+  s3:
+    deploymentBucketName:
+      dev: ${self:provider.region}.${self:custom.org}.${self:custom.app}.${self:custom.stage}.${self:custom.developer}.deploys
+      test: ${self:provider.region}.${self:custom.org}.${self:custom.app}.${self:custom.stage}.deploys
+      prod: ${self:provider.region}.${self:custom.org}.${self:custom.app}.${self:custom.stage}.deploys
+    artifactsBucketName: ${ssm:/${self:custom.app}-common-infrastructure/ArtifactsBucketName}

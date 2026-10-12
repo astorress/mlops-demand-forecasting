@@ -1,0 +1,35 @@
+[tool.yapf]
+based_on_style = "pep8"
+force_multiline_dict = true
+indent_dictionary_value = true
+column_limit = 80
+spaces_before_comment = 2
+split_before_logical_operator = false
+split_complex_comprehension = true
+
+[tool.isort]
+profile = "black"
+line_length = 80
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 3
+use_parentheses = true
+ensure_newline_before_comments = true
+known_first_party = ["src"]
+
+[tool.pylint]
+max-line-length = 80
+init-hook = "import sys; sys.path.insert(0, '.')"
+disable = [
+    "C0111",  # missing-docstring
+    "C0411",  # wrong-import-order
+    "C0415",  # import-outside-toplevel (imports pesados perezosos)
+    "W0703",  # broad-except
+    "W0613",  # unused-argument (firmas de handlers Lambda)
+    "R0913",  # too-many-arguments
+    "R0914",  # too-many-locals
+    "R0917",  # too-many-positional-arguments
+    "E0401",  # import-error (awsglue solo existe dentro de Glue)
+    "W0621",  # redefined-outer-name (fixtures de pytest)
+    "R0801",  # duplicate-code (scripts locales replican los entry points)
+]

@@ -1,0 +1,46 @@
+Resources:
+  SageMakerExecutionRoleArnParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /${self:custom.servicePrefix}/SageMakerExecutionRoleArn
+      Tier: Standard
+      Type: String
+      Value: !GetAtt SageMakerExecutionRole.Arn
+
+  ModelPackageGroupNameParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /${self:custom.servicePrefix}/ModelPackageGroupName
+      Tier: Standard
+      Type: String
+      Value: ${self:custom.registry.modelPackageGroupName}
+
+  # Contrato de despliegue. Se crea aquí con un placeholder; OnModelApproved
+  # sobrescribe los valores en cada aprobación (CloudFormation no los toca
+  # salvo que cambien estas definiciones).
+  ApprovedModelPackageArnParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /${self:custom.servicePrefix}/ApprovedModelPackageArn
+      Description: Último model package aprobado (lo escribe OnModelApproved)
+      Tier: Standard
+      Type: String
+      Value: none
+
+  ApprovedBaselineConstraintsUriParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /${self:custom.servicePrefix}/ApprovedBaselineConstraintsUri
+      Description: Constraints de drift del modelo aprobado
+      Tier: Standard
+      Type: String
+      Value: none
+
+  ApprovedBaselineStatisticsUriParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /${self:custom.servicePrefix}/ApprovedBaselineStatisticsUri
+      Description: Perfil de referencia de drift del modelo aprobado
+      Tier: Standard
+      Type: String
+      Value: none

@@ -1,0 +1,24 @@
+Resources:
+  # S3 (EventBridge activado en el bucket del data lake) → workflow de Glue.
+  RawDataArrivedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: ${self:custom.servicePrefix}-RawDataArrived
+      Description: Nuevo archivo raw de demanda → arranca el workflow de ingesta
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.s3
+        detail-type:
+          - Object Created
+        detail:
+          bucket:
+            name:
+              - ${self:custom.s3.dataLakeBucketName}
+          object:
+            key:
+              - prefix: ${self:custom.prefixes.raw}/
+      Targets:
+        - Id: IngestionWorkflow
+          Arn: !Sub arn:aws:glue:${AWS::Region}:${AWS::AccountId}:workflow/${self:custom.glue.workflowName}
+          RoleArn: !GetAtt IngestionEventsRole.Arn

@@ -1,0 +1,23 @@
+Resources:
+  PredictUrlParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /${self:custom.servicePrefix}/PredictUrl
+      Tier: Standard
+      Type: String
+      Value: !Join
+        - ''
+        - - https://
+          - !Ref HttpApi
+          - .execute-api.
+          - !Ref AWS::Region
+          - .amazonaws.com/predict
+
+  DeployedModelPackageArnParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /${self:custom.servicePrefix}/DeployedModelPackageArn
+      Description: Model package currently served by the endpoint
+      Tier: Standard
+      Type: String
+      Value: ${self:custom.model.packageArn}

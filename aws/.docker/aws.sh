@@ -1,0 +1,13 @@
+#!/bin/bash
+# Escribe las credenciales de .envs/aws.env en ~/.aws para el AWS CLI y
+# Serverless Framework (usuario del contenedor y root).
+
+mkdir -p ~/.aws
+echo "[default]" > ~/.aws/credentials
+echo "aws_access_key_id=$AWS_ACCESS_KEY_ID" >> ~/.aws/credentials
+echo "aws_secret_access_key=$AWS_SECRET_ACCESS_KEY" >> ~/.aws/credentials
+echo "[default]" > ~/.aws/config
+echo "region=$AWS_DEFAULT_REGION" >> ~/.aws/config
+echo "output=$AWS_DEFAULT_OUTPUT" >> ~/.aws/config
+sudo mkdir -p /root/.aws
+sudo cp -r ~/.aws/* /root/.aws/

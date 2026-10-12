@@ -1,0 +1,74 @@
+# VPC mínima del dominio de Studio. Con AppNetworkAccessType=PublicInternetOnly
+# el tráfico de las apps sale por la red administrada de SageMaker; esta VPC
+# solo aloja el EFS con el home de los usuarios. Sin NAT gateways (costo cero).
+Resources:
+  StudioVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: ${self:custom.vpc.cidr}
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: ${self:custom.servicePrefix}
+
+  StudioInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: ${self:custom.servicePrefix}
+
+  StudioInternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref StudioVpc
+      InternetGatewayId: !Ref StudioInternetGateway
+
+  StudioRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref StudioVpc
+      Tags:
+        - Key: Name
+          Value: ${self:custom.servicePrefix}
+
+  StudioDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: StudioInternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref StudioRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref StudioInternetGateway
+
+  StudioSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref StudioVpc
+      CidrBlock: ${self:custom.vpc.subnetACidr}
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: ${self:custom.servicePrefix}-A
+
+  StudioSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref StudioVpc
+      CidrBlock: ${self:custom.vpc.subnetBCidr}
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: ${self:custom.servicePrefix}-B
+
+  StudioSubnetARouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref StudioSubnetA
+      RouteTableId: !Ref StudioRouteTable
+
+  StudioSubnetBRouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref StudioSubnetB
+      RouteTableId: !Ref StudioRouteTable

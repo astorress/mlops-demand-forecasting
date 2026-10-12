@@ -1,0 +1,131 @@
+Resources:
+  # La usan el pipeline y cada job que lanza (processing, training), además de
+  # los modelos y Batch Transform aguas abajo.
+  SageMakerExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ${self:custom.iam.sageMakerRoleName}
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: sagemaker.amazonaws.com
+            Action: sts:AssumeRole
+      # Amplia en APIs de SageMaker (jobs, registry, experiments, pulls de
+      # ECR, logs) para que el proyecto sea legible; el acceso a datos se acota.
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+      Policies:
+        - PolicyName: ${self:custom.servicePrefix}-SageMaker
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:GetBucketLocation
+                Resource:
+                  - ${self:custom.s3.artifactsBucketArn}
+                  - ${self:custom.s3.dataLakeBucketArn}
+              # Artefactos del pipeline, data capture, reportes de monitoreo e
+              # inputs del batch viven en el bucket de artefactos.
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:AbortMultipartUpload
+                Resource: ${self:custom.s3.artifactsBucketArn}/*
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: ${self:custom.s3.dataLakeBucketArn}/${self:custom.glue.curatedPrefix}/*
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:AbortMultipartUpload
+                Resource: ${self:custom.s3.dataLakeBucketArn}/${self:custom.glue.predictionsPrefix}/*
+              - Effect: Allow
+                Action:
+                  - athena:StartQueryExecution
+                  - athena:GetQueryExecution
+                  - athena:GetQueryResults
+                  - athena:StopQueryExecution
+                  - athena:GetWorkGroup
+                Resource: !Sub arn:aws:athena:${AWS::Region}:${AWS::AccountId}:workgroup/${self:custom.athena.pipelineWorkGroupName}
+              - Effect: Allow
+                Action:
+                  - glue:GetDatabase
+                  - glue:GetTable
+                  - glue:GetPartition
+                  - glue:GetPartitions
+                Resource:
+                  - !Sub arn:aws:glue:${AWS::Region}:${AWS::AccountId}:catalog
+                  - !Sub arn:aws:glue:${AWS::Region}:${AWS::AccountId}:database/${self:custom.glue.databaseName}
+                  - !Sub arn:aws:glue:${AWS::Region}:${AWS::AccountId}:table/${self:custom.glue.databaseName}/*
+              # Pull de la imagen del modelo (jobs, endpoints, transform).
+              - Effect: Allow
+                Action:
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchCheckLayerAvailability
+                Resource: ${self:custom.image.repositoryArn}
+              - Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: '*'
+              - Effect: Allow
+                Action: iam:PassRole
+                Resource: arn:aws:iam::${aws:accountId}:role/${self:custom.iam.sageMakerRoleName}
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: sagemaker.amazonaws.com
+
+  # EventBridge → StartPipelineExecution (datos nuevos, schedule, drift).
+  PipelineEventsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ${self:custom.servicePrefix}-PipelineEvents
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ${self:custom.servicePrefix}-PipelineEvents
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: sagemaker:StartPipelineExecution
+                Resource: !Sub arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:pipeline/${self:custom.pipeline.name}
+
+  OnModelApprovedRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ${self:custom.servicePrefix}-OnModelApproved
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ${self:custom.servicePrefix}-OnModelApproved
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: sagemaker:DescribeModelPackage
+                Resource: !Sub arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:model-package/${self:custom.registry.modelPackageGroupName}/*
+              - Effect: Allow
+                Action: ssm:PutParameter
+                Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${self:custom.servicePrefix}/Approved*
+              - Effect: Allow
+                Action: sns:Publish
+                Resource: ${self:custom.sns.notificationsTopicArn}

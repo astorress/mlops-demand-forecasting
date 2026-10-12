@@ -1,0 +1,54 @@
+Resources:
+  # Model y EndpointConfig son inmutables y sin nombre a propósito: un package
+  # aprobado nuevo los reemplaza y el Endpoint cambia con un update blue/green.
+  ForecastModel:
+    Type: AWS::SageMaker::Model
+    Properties:
+      ExecutionRoleArn: ${self:custom.model.executionRoleArn}
+      Containers:
+        - ModelPackageName: ${self:custom.model.packageArn}
+      Tags:
+        - Key: ModelPackageArn
+          Value: ${self:custom.model.packageArn}
+
+  ForecastEndpointConfig:
+    Type: AWS::SageMaker::EndpointConfig
+    Properties:
+      ProductionVariants:
+        - VariantName: AllTraffic
+          ModelName: !GetAtt ForecastModel.ModelName
+          InstanceType: ${self:custom.endpoint.instanceType}
+          InitialInstanceCount: ${self:custom.endpoint.instanceCount}
+          InitialVariantWeight: 1
+      # Peticiones/respuestas muestreadas a S3: entrada del monitor DataDrift
+      # (y de futuros joins con la demanda real / datasets de reentrenamiento).
+      DataCaptureConfig:
+        EnableCapture: true
+        InitialSamplingPercentage: ${self:custom.endpoint.dataCapturePercentage.${self:custom.stage}}
+        DestinationS3Uri: s3://${self:custom.s3.artifactsBucketName}/${self:custom.prefixes.dataCapture}
+        CaptureOptions:
+          - CaptureMode: Input
+          - CaptureMode: Output
+        CaptureContentTypeHeader:
+          CsvContentTypes:
+            - text/csv
+          JsonContentTypes:
+            - application/json
+
+  ForecastEndpoint:
+    Type: AWS::SageMaker::Endpoint
+    Properties:
+      EndpointName: ${self:custom.endpoint.name}
+      EndpointConfigName: !GetAtt ForecastEndpointConfig.EndpointConfigName
+      # Blue/green: la flota nueva recibe todo el tráfico, se vigila durante
+      # el baking period y vuelve atrás sola si se dispara la alarma de 5XX.
+      DeploymentConfig:
+        BlueGreenUpdatePolicy:
+          TrafficRoutingConfiguration:
+            Type: ALL_AT_ONCE
+            WaitIntervalInSeconds: 0
+          TerminationWaitInSeconds: 300
+          MaximumExecutionTimeoutInSeconds: 3600
+        AutoRollbackConfiguration:
+          Alarms:
+            - AlarmName: ${self:custom.servicePrefix}-Invocation5XXErrors

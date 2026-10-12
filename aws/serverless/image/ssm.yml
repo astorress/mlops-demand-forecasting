@@ -1,0 +1,24 @@
+Resources:
+  RepositoryNameParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /${self:custom.servicePrefix}/RepositoryName
+      Tier: Standard
+      Type: String
+      Value: !Ref ModelImageRepository
+
+  RepositoryArnParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /${self:custom.servicePrefix}/RepositoryArn
+      Tier: Standard
+      Type: String
+      Value: !GetAtt ModelImageRepository.Arn
+
+  RepositoryUriParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /${self:custom.servicePrefix}/RepositoryUri
+      Tier: Standard
+      Type: String
+      Value: !GetAtt ModelImageRepository.RepositoryUri

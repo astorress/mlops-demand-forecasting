@@ -1,0 +1,9 @@
+# La API de predicción no tiene autenticación (proyecto de aprendizaje), así
+# que su stage por defecto tiene throttling: las peticiones de más reciben
+# HTTP 429 en vez de llegar a la Lambda y al endpoint de SageMaker.
+extensions:
+  HttpApiStage:
+    Properties:
+      DefaultRouteSettings:
+        ThrottlingRateLimit: ${self:custom.api.throttlingRateLimit}
+        ThrottlingBurstLimit: ${self:custom.api.throttlingBurstLimit}

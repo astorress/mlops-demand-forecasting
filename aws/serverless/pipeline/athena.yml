@@ -1,0 +1,15 @@
+Resources:
+  PipelineAthenaWorkGroup:
+    Type: AWS::Athena::WorkGroup
+    Properties:
+      Name: ${self:custom.athena.pipelineWorkGroupName}
+      Description: Lo usa la dataset definition de Athena del pipeline de entrenamiento
+      RecursiveDeleteOption: true
+      State: ENABLED
+      WorkGroupConfiguration:
+        EnforceWorkGroupConfiguration: false
+        PublishCloudWatchMetricsEnabled: true
+        EngineVersion:
+          SelectedEngineVersion: Athena engine version 3
+        ResultConfiguration:
+          OutputLocation: s3://${self:custom.s3.artifactsBucketName}/${self:custom.prefixes.pipeline}/athena/

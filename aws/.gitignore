@@ -1,0 +1,25 @@
+# Dependencies
+node_modules
+
+# Environment
+.envs/*
+!.envs/.gitignore
+!.envs/*.example
+
+*.serverless
+*.vscode
+*.DS_Store
+tmp
+
+# Datos y modelos locales (nunca se versionan)
+/data/
+/models/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+coverage/
+htmlcov/
+.coverage

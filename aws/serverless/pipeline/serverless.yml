@@ -1,0 +1,131 @@
+# Capa de construcción del modelo: SageMaker Pipeline (entrenamiento
+# continuo), Model Registry y los eventos alrededor — datos curados nuevos,
+# schedule o alarma de drift arrancan el pipeline; los registros avisan al
+# equipo; las aprobaciones actualizan el contrato de despliegue (SSM) que
+# consumen serverless/endpoint y serverless/batch.
+service: demand-forecasting-pipeline
+frameworkVersion: ^4.43.0
+configValidationMode: error
+
+provider:
+  name: aws
+  stage: dev
+  region: us-east-1
+  runtime: python3.13
+  architecture: arm64
+  stackName: ${self:custom.app}-${self:service}
+  versionFunctions: false
+  deploymentBucket:
+    name: ${self:custom.s3.deploymentBucketName.${self:custom.stage}}
+  logRetentionInDays: ${self:custom.lambda.logRetentionInDays.${self:custom.stage}}
+
+package:
+  individually: true
+  patterns:
+    - '!./**'
+
+functions:
+  - ${file(functions.yml)}
+
+resources:
+  - ${file(iam.yml)}
+  - ${file(sagemaker.yml)}
+  - ${file(athena.yml)}
+  - ${file(events.yml)}
+  - ${file(ssm.yml)}
+  - ${file(cfn-collisions.yml)}
+
+plugins:
+  - serverless-deployment-bucket
+  - '@serverless/safeguards-plugin'
+
+custom:
+  org: ${env:ORG}
+  app: mlops
+  project: demand-forecasting
+  stage: ${opt:stage, self:provider.stage}
+  safeguards:
+    - safeguard: framework-version
+      enforcementLevel: warning
+      config: ${self:frameworkVersion}
+    - safeguard: allowed-regions
+      enforcementLevel: error
+      config:
+        - ${self:provider.region}
+    - safeguard: no-wild-iam-role-statements
+      enforcementLevel: warning
+    - safeguard: allowed-runtimes
+      config:
+        - ${self:provider.runtime}
+    - safeguard: allowed-function-names
+      enforcementLevel: warning
+      config: ${self:custom.servicePrefix}-${FUNCTION}
+    - safeguard: allowed-stages
+      enforcementLevel: error
+      config:
+        - dev
+        - test
+        - prod
+  servicePrefix: ${self:custom.app}-${self:service}
+  developer: ${env:DEVELOPER}
+  prefixes:
+    pipeline: pipelines/${self:custom.project}
+  pipeline:
+    name: ${self:custom.project}-training
+    # Quality gate: MAPE de test (%) máximo para registrar un modelo.
+    maxMape: ${env:MAX_MAPE, '5.0'}
+    # Entrenamiento continuo por calendario (además de datos nuevos y drift).
+    retrainingSchedule: cron(0 6 ? * MON *)
+    retrainingScheduleState:
+      dev: DISABLED
+      test: DISABLED
+      prod: ENABLED
+  registry:
+    modelPackageGroupName: ${self:custom.project}
+    # Tipos de instancia donde se puede desplegar una versión registrada (el
+    # endpoint usa ml.t2.medium).
+    realtimeInstanceTypes:
+      - ml.t2.medium
+      - ml.m5.large
+      - ml.m5.xlarge
+    transformInstanceTypes:
+      - ml.m5.large
+      - ml.m5.xlarge
+  # Imagen del proyecto (container/Dockerfile) de serverless/image. `tag` es
+  # el hash del contenido y hace fallar el deploy si ese tag no se publicó.
+  image:
+    repositoryName: ${ssm:/${self:custom.app}-demand-forecasting-image/RepositoryName}
+    repositoryArn: ${ssm:/${self:custom.app}-demand-forecasting-image/RepositoryArn}
+    repositoryUri: ${ssm:/${self:custom.app}-demand-forecasting-image/RepositoryUri}
+    tag: ${file(../../container/image-version.js)}
+  iam:
+    sageMakerRoleName: ${self:custom.servicePrefix}-SageMaker
+  glue:
+    databaseName: ${ssm:/${self:custom.app}-demand-forecasting-data/GlueDatabaseName}
+    curatedTableName: ${ssm:/${self:custom.app}-demand-forecasting-data/CuratedTableName}
+    curatedPrefix: ${ssm:/${self:custom.app}-demand-forecasting-data/CuratedPrefix}
+    predictionsPrefix: ${ssm:/${self:custom.app}-demand-forecasting-data/PredictionsPrefix}
+    curateJobName: ${ssm:/${self:custom.app}-demand-forecasting-data/CurateJobName}
+  athena:
+    # Workgroup propio (sin forzar la ubicación de resultados) para la
+    # dataset definition de Athena de SageMaker, que fija su OutputS3Uri.
+    pipelineWorkGroupName: ${self:custom.project}-pipeline
+  lambda:
+    logRetentionInDays:
+      dev: 1
+      test: 3
+      prod: 7
+  monitoring:
+    # Alarma de data drift de serverless/endpoint (por nombre: el endpoint
+    # puede no existir todavía).
+    driftAlarmName: ${self:custom.app}-${self:custom.project}-endpoint-DataDrift
+  sns:
+    notificationsTopicArn: ${ssm:/${self:custom.app}-common-infrastructure/NotificationsTopicArn}
+  s3:
+    deploymentBucketName:
+      dev: ${self:provider.region}.${self:custom.org}.${self:custom.app}.${self:custom.stage}.${self:custom.developer}.deploys
+      test: ${self:provider.region}.${self:custom.org}.${self:custom.app}.${self:custom.stage}.deploys
+      prod: ${self:provider.region}.${self:custom.org}.${self:custom.app}.${self:custom.stage}.deploys
+    dataLakeBucketArn: ${ssm:/${self:custom.app}-common-infrastructure/DataLakeBucketArn}
+    artifactsBucketName: ${ssm:/${self:custom.app}-common-infrastructure/ArtifactsBucketName}
+    artifactsBucketArn: ${ssm:/${self:custom.app}-common-infrastructure/ArtifactsBucketArn}

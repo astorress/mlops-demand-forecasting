@@ -1,0 +1,12 @@
+# Runtime de la imagen del modelo (processing, training, serving) Y del
+# devcontainer (img-demandforecasting): un solo set de versiones fijas.
+# El modelo es un pickle: cambiar lightgbm/scikit-learn obliga a reentrenar y
+# re-aprobar antes de servirlo.
+lightgbm==4.7.0
+scikit-learn==1.9.1
+pandas==3.0.6
+numpy==2.5.3
+scipy==1.18.1
+joblib==1.6.0
+flask==3.1.3
+gunicorn==26.2.0

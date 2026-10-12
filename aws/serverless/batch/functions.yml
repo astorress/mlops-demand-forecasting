@@ -1,0 +1,38 @@
+BatchScoring:
+  name: ${self:custom.servicePrefix}-BatchScoring
+  description: Athena UNLOAD → Batch Transform con el modelo aprobado
+  handler: src/functions/inference/batch_scoring.handler
+  package:
+    patterns:
+      - ../../src/__init__.py
+      - ../../src/features/__init__.py
+      - ../../src/features/schema.py
+      - ../../src/functions/__init__.py
+      - ../../src/functions/inference/__init__.py
+      - ../../src/functions/inference/batch_scoring.py
+      - ../../src/services/__init__.py
+      - ../../src/services/athena.py
+      - ../../src/services/sagemaker.py
+      - ../../src/services/ssm.py
+      - ../../src/utilities/*.py
+  role: !GetAtt BatchScoringRole.Arn
+  timeout: 300
+  memorySize: 256
+  maximumRetryAttempts: 0
+  environment:
+    ATHENA_WORKGROUP: ${self:custom.athena.workGroupName}
+    GLUE_DATABASE: ${self:custom.glue.databaseName}
+    CURATED_TABLE: ${self:custom.glue.curatedTableName}
+    ARTIFACTS_BUCKET_NAME: ${self:custom.s3.artifactsBucketName}
+    BATCH_INPUT_PREFIX: ${self:custom.batch.inputPrefix}
+    DATA_LAKE_BUCKET_NAME: ${self:custom.s3.dataLakeBucketName}
+    PREDICTIONS_PREFIX: ${self:custom.glue.predictionsPrefix}
+    APPROVED_MODEL_PACKAGE_ARN_PARAMETER: ${self:custom.sagemaker.approvedModelPackageParameter}
+    SAGEMAKER_ROLE_ARN: ${self:custom.sagemaker.executionRoleArn}
+    RESOURCE_PREFIX: ${self:custom.project}
+    TRANSFORM_INSTANCE_TYPE: ${self:custom.batch.instanceType}
+    DEFAULT_DAYS: '${self:custom.batch.days}'
+  events:
+    - schedule:
+        rate: ${self:custom.batch.schedule}
+        enabled: ${self:custom.batch.scheduleEnabled.${self:custom.stage}}

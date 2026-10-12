@@ -1,0 +1,59 @@
+# Calidad del subproyecto aws/: formato, lint y tests (Python y Serverless).
+# Solo corre cuando cambia algo de aws/. Los deploys no se automatizan: se
+# hacen a mano desde el devcontainer (ver aws/README.md).
+name: aws
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'aws/**'
+      - '.github/workflows/aws.yml'
+  pull_request:
+    paths:
+      - 'aws/**'
+      - '.github/workflows/aws.yml'
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: aws
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Instalar runtime del modelo + herramientas
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq libgomp1
+          pip install -q -r container/requirements.txt boto3 pytest pytest-cov pytest-mock moto pylint yapf isort
+      - run: yapf --diff -r src tests
+      - run: python -m isort --check-only src tests
+      - run: pylint src tests
+      - run: python -m pytest
+
+  node:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: aws
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci --no-audit --no-fund
+      - run: npx prettier --check .
+      - run: npx eslint serverless container
+
+  model-image:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: aws
+    steps:
+      - uses: actions/checkout@v4
+      - name: Construir la imagen del modelo
+        run: docker build -f container/Dockerfile -t demand-forecasting-model:ci .

@@ -1,0 +1,62 @@
+Predict:
+  name: ${self:custom.servicePrefix}-Predict
+  description: POST /predict → endpoint en tiempo real (pública, con throttling)
+  handler: src/functions/inference/predict.handler
+  package:
+    patterns:
+      - ../../src/__init__.py
+      - ../../src/features/__init__.py
+      - ../../src/features/calendar.py
+      - ../../src/features/schema.py
+      - ../../src/functions/__init__.py
+      - ../../src/functions/inference/__init__.py
+      - ../../src/functions/inference/predict.py
+      - ../../src/services/__init__.py
+      - ../../src/services/sagemaker_runtime.py
+      - ../../src/utilities/*.py
+  role: !GetAtt PredictRole.Arn
+  timeout: 15
+  memorySize: 256
+  environment:
+    ENDPOINT_NAME: ${self:custom.endpoint.name}
+    MAX_RECORDS: '168'
+  events:
+    - httpApi:
+        method: POST
+        path: /predict
+        # Sin authorizer: API abierta para aprender los flujos (api.yml tiene
+        # el throttling que la protege).
+
+DataDrift:
+  name: ${self:custom.servicePrefix}-DataDrift
+  description: Drift diario (PSI) del tráfico capturado vs el baseline del modelo
+  handler: src/functions/monitoring/data_drift.handler
+  package:
+    patterns:
+      - ../../src/__init__.py
+      - ../../src/features/__init__.py
+      - ../../src/features/schema.py
+      - ../../src/functions/__init__.py
+      - ../../src/functions/monitoring/*.py
+      - ../../src/monitoring/*.py
+      - ../../src/services/__init__.py
+      - ../../src/services/cloudwatch.py
+      - ../../src/services/s3.py
+      - ../../src/utilities/*.py
+  role: !GetAtt DataDriftRole.Arn
+  timeout: 300
+  memorySize: 512
+  maximumRetryAttempts: 0
+  environment:
+    ENDPOINT_NAME: ${self:custom.endpoint.name}
+    VARIANT_NAME: AllTraffic
+    ARTIFACTS_BUCKET_NAME: ${self:custom.s3.artifactsBucketName}
+    CAPTURE_PREFIX: ${self:custom.prefixes.dataCapture}
+    REPORTS_PREFIX: ${self:custom.prefixes.monitoring}/data-drift
+    BASELINE_STATISTICS_URI: ${self:custom.model.baselineStatisticsUri}
+    BASELINE_CONSTRAINTS_URI: ${self:custom.model.baselineConstraintsUri}
+    METRIC_NAMESPACE: ${self:custom.monitoring.metricNamespace}
+    LOOKBACK_HOURS: '${self:custom.monitoring.lookbackHours}'
+  events:
+    - schedule:
+        rate: ${self:custom.monitoring.schedule}

@@ -1,25 +1,6 @@
-# Entorno
-.env
-.venv/
-venv/
-
-# Datos y artefactos generados (se regeneran con make generate-data / preprocess)
-data/raw/*
-!data/raw/.gitkeep
-data/processed/*
-!data/processed/.gitkeep
-artifacts/*
-!artifacts/.gitkeep
-mlruns/
-mlartifacts/
-
-# Python
-__pycache__/
-*.pyc
-.pytest_cache/
-.ipynb_checkpoints/
-
-# Sistema / IDE
+# Sistema / IDE (cada subproyecto tiene además su propio .gitignore)
 .DS_Store
-.vscode/
 .idea/
+.vscode/
+node_modules/
+__pycache__/

@@ -1,0 +1,31 @@
+Resources:
+  # Canal único hacia las personas para todo evento MLOps: fallas del
+  # pipeline, modelos pendientes de aprobación, modelos aprobados y alarmas.
+  NotificationsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: ${self:custom.servicePrefix}-Notifications
+      DisplayName: MLOps
+      Subscription: ${self:custom.sns.notificationSubscriptions}
+
+  NotificationsTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref NotificationsTopic
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # Reglas de EventBridge (pipeline / Model Registry) y alarmas de
+          # CloudWatch (salud del endpoint, data drift) publican directo.
+          - Sid: AllowEventBridgeAndCloudWatch
+            Effect: Allow
+            Principal:
+              Service:
+                - events.amazonaws.com
+                - cloudwatch.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref NotificationsTopic
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId

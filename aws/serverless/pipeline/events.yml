@@ -1,0 +1,120 @@
+Resources:
+  # Disparador 1 de entrenamiento continuo: datos curados nuevos.
+  CurationSucceededRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: ${self:custom.servicePrefix}-CurationSucceeded
+      Description: Datos curados nuevos → reentrenar
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.glue
+        detail-type:
+          - Glue Job State Change
+        detail:
+          jobName:
+            - ${self:custom.glue.curateJobName}
+          state:
+            - SUCCEEDED
+      Targets:
+        - Id: TrainingPipeline
+          Arn: !Sub arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:pipeline/${self:custom.pipeline.name}
+          RoleArn: !GetAtt PipelineEventsRole.Arn
+          SageMakerPipelineParameters:
+            PipelineParameterList:
+              - Name: TriggeredBy
+                Value: new-data
+
+  # Disparador 2: calendario (solo prod).
+  ScheduledRetrainingRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: ${self:custom.servicePrefix}-ScheduledRetraining
+      Description: Reentrenamiento periódico sobre los últimos datos curados
+      ScheduleExpression: ${self:custom.pipeline.retrainingSchedule}
+      State: ${self:custom.pipeline.retrainingScheduleState.${self:custom.stage}}
+      Targets:
+        - Id: TrainingPipeline
+          Arn: !Sub arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:pipeline/${self:custom.pipeline.name}
+          RoleArn: !GetAtt PipelineEventsRole.Arn
+          SageMakerPipelineParameters:
+            PipelineParameterList:
+              - Name: TriggeredBy
+                Value: schedule
+
+  # Disparador 3: la alarma de data drift del endpoint entra en ALARM (el
+  # equivalente del DAG mlops_retraining del proyecto open source).
+  DataDriftRetrainingRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: ${self:custom.servicePrefix}-DataDriftRetraining
+      Description: Drift en el tráfico del endpoint → reentrenar
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.cloudwatch
+        detail-type:
+          - CloudWatch Alarm State Change
+        detail:
+          alarmName:
+            - ${self:custom.monitoring.driftAlarmName}
+          state:
+            value:
+              - ALARM
+      Targets:
+        - Id: TrainingPipeline
+          Arn: !Sub arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:pipeline/${self:custom.pipeline.name}
+          RoleArn: !GetAtt PipelineEventsRole.Arn
+          SageMakerPipelineParameters:
+            PipelineParameterList:
+              - Name: TriggeredBy
+                Value: data-drift
+
+  PipelineFailedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: ${self:custom.servicePrefix}-PipelineFailed
+      Description: El pipeline falló (validación de datos, MAPE alto, errores)
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.sagemaker
+        detail-type:
+          - SageMaker Model Building Pipeline Execution Status Change
+        detail:
+          pipelineArn:
+            - !Sub arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:pipeline/${self:custom.pipeline.name}
+          currentPipelineExecutionStatus:
+            - Failed
+      Targets:
+        - Id: Notifications
+          Arn: ${self:custom.sns.notificationsTopicArn}
+          InputTransformer:
+            InputPathsMap:
+              execution: $.detail.pipelineExecutionArn
+            InputTemplate: '"[${self:custom.stage}] demand-forecasting training pipeline FAILED: <execution>. Revisa el paso fallido en SageMaker Studio → Pipelines."'
+
+  ModelPendingApprovalRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: ${self:custom.servicePrefix}-ModelPendingApproval
+      Description: Versión nueva del modelo registrada, esperando a una persona
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.sagemaker
+        detail-type:
+          - SageMaker Model Package State Change
+        detail:
+          ModelPackageGroupName:
+            - ${self:custom.registry.modelPackageGroupName}
+          ModelApprovalStatus:
+            - PendingManualApproval
+      Targets:
+        - Id: Notifications
+          Arn: ${self:custom.sns.notificationsTopicArn}
+          InputTransformer:
+            InputPathsMap:
+              version: $.detail.ModelPackageVersion
+              arn: $.detail.ModelPackageArn
+            InputTemplate: '"[${self:custom.stage}] demand-forecasting model v<version> pendiente de aprobación (<arn>). Revisa sus métricas y ejecuta: npm run models -- --approve <version>"'

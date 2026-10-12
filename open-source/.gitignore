@@ -1,0 +1,27 @@
+# Entorno (solo se versionan los *.example de .envs/)
+.envs/*
+!.envs/.gitignore
+!.envs/*.example
+.venv/
+venv/
+
+# Datos y artefactos generados (se regeneran con make generate-data / preprocess)
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+artifacts/*
+!artifacts/.gitkeep
+mlruns/
+mlartifacts/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Sistema / IDE
+.DS_Store
+.vscode/
+.idea/

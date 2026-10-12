@@ -1,0 +1,40 @@
+Resources:
+  GlueDatabaseNameParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /${self:custom.servicePrefix}/GlueDatabaseName
+      Tier: Standard
+      Type: String
+      Value: !Ref GlueDatabase
+
+  CuratedTableNameParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /${self:custom.servicePrefix}/CuratedTableName
+      Tier: Standard
+      Type: String
+      Value: !Ref CuratedTable
+
+  CuratedPrefixParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /${self:custom.servicePrefix}/CuratedPrefix
+      Tier: Standard
+      Type: String
+      Value: ${self:custom.prefixes.curated}
+
+  PredictionsPrefixParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /${self:custom.servicePrefix}/PredictionsPrefix
+      Tier: Standard
+      Type: String
+      Value: ${self:custom.prefixes.predictions}
+
+  CurateJobNameParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /${self:custom.servicePrefix}/CurateJobName
+      Tier: Standard
+      Type: String
+      Value: !Ref CurateJob

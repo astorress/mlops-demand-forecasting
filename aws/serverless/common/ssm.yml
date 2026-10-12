@@ -1,0 +1,56 @@
+Resources:
+  DataLakeBucketNameParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /${self:custom.servicePrefix}/DataLakeBucketName
+      Tier: Standard
+      Type: String
+      Value: !Ref DataLakeBucket
+
+  DataLakeBucketArnParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /${self:custom.servicePrefix}/DataLakeBucketArn
+      Tier: Standard
+      Type: String
+      Value: !GetAtt DataLakeBucket.Arn
+
+  ArtifactsBucketNameParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /${self:custom.servicePrefix}/ArtifactsBucketName
+      Tier: Standard
+      Type: String
+      Value: !Ref ArtifactsBucket
+
+  ArtifactsBucketArnParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /${self:custom.servicePrefix}/ArtifactsBucketArn
+      Tier: Standard
+      Type: String
+      Value: !GetAtt ArtifactsBucket.Arn
+
+  AthenaResultsBucketArnParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /${self:custom.servicePrefix}/AthenaResultsBucketArn
+      Tier: Standard
+      Type: String
+      Value: !GetAtt AthenaResultsBucket.Arn
+
+  AthenaWorkGroupNameParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /${self:custom.servicePrefix}/AthenaWorkGroupName
+      Tier: Standard
+      Type: String
+      Value: !Ref AthenaWorkGroup
+
+  NotificationsTopicArnParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /${self:custom.servicePrefix}/NotificationsTopicArn
+      Tier: Standard
+      Type: String
+      Value: !Ref NotificationsTopic

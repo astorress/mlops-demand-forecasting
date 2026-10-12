@@ -1,0 +1,108 @@
+# Capa de inferencia batch: por calendario, pronostica los últimos días de la
+# última partición curada con el último modelo aprobado (Athena UNLOAD →
+# Batch Transform) y escribe el pronóstico en el data lake (tabla
+# `predictions`), donde se cruza con la demanda real para medir el MAPE en
+# producción. Sin infraestructura encendida: solo se paga mientras corre el
+# transform job.
+service: demand-forecasting-batch
+frameworkVersion: ^4.43.0
+configValidationMode: error
+
+provider:
+  name: aws
+  stage: dev
+  region: us-east-1
+  runtime: python3.13
+  architecture: arm64
+  stackName: ${self:custom.app}-${self:service}
+  versionFunctions: false
+  deploymentBucket:
+    name: ${self:custom.s3.deploymentBucketName.${self:custom.stage}}
+  logRetentionInDays: ${self:custom.lambda.logRetentionInDays.${self:custom.stage}}
+
+package:
+  individually: true
+  patterns:
+    - '!./**'
+
+functions:
+  - ${file(functions.yml)}
+
+resources:
+  - ${file(iam.yml)}
+  - ${file(events.yml)}
+  - ${file(cfn-collisions.yml)}
+
+plugins:
+  - serverless-deployment-bucket
+  - '@serverless/safeguards-plugin'
+
+custom:
+  org: ${env:ORG}
+  app: mlops
+  project: demand-forecasting
+  stage: ${opt:stage, self:provider.stage}
+  safeguards:
+    - safeguard: framework-version
+      enforcementLevel: warning
+      config: ${self:frameworkVersion}
+    - safeguard: allowed-regions
+      enforcementLevel: error
+      config:
+        - ${self:provider.region}
+    - safeguard: no-wild-iam-role-statements
+      enforcementLevel: warning
+    - safeguard: allowed-runtimes
+      config:
+        - ${self:provider.runtime}
+    - safeguard: allowed-function-names
+      enforcementLevel: warning
+      config: ${self:custom.servicePrefix}-${FUNCTION}
+    - safeguard: allowed-stages
+      enforcementLevel: error
+      config:
+        - dev
+        - test
+        - prod
+  servicePrefix: ${self:custom.app}-${self:service}
+  developer: ${env:DEVELOPER}
+  dataSsmPrefix: /${self:custom.app}-demand-forecasting-data
+  pipelineSsmPrefix: /${self:custom.app}-demand-forecasting-pipeline
+  batch:
+    schedule: cron(0 7 * * ? *)
+    scheduleEnabled:
+      dev: false
+      test: false
+      prod: true
+    instanceType: ml.m5.large
+    # Días (hacia atrás desde la última hora curada) que pronostica cada corrida.
+    days: 7
+    inputPrefix: batch/${self:custom.project}/input
+  glue:
+    databaseName: ${ssm:${self:custom.dataSsmPrefix}/GlueDatabaseName}
+    curatedTableName: ${ssm:${self:custom.dataSsmPrefix}/CuratedTableName}
+    curatedPrefix: ${ssm:${self:custom.dataSsmPrefix}/CuratedPrefix}
+    predictionsPrefix: ${ssm:${self:custom.dataSsmPrefix}/PredictionsPrefix}
+  sagemaker:
+    executionRoleArn: ${ssm:${self:custom.pipelineSsmPrefix}/SageMakerExecutionRoleArn}
+    modelPackageGroupName: ${ssm:${self:custom.pipelineSsmPrefix}/ModelPackageGroupName}
+    approvedModelPackageParameter: ${self:custom.pipelineSsmPrefix}/ApprovedModelPackageArn
+  athena:
+    workGroupName: ${ssm:/${self:custom.app}-common-infrastructure/AthenaWorkGroupName}
+    resultsBucketArn: ${ssm:/${self:custom.app}-common-infrastructure/AthenaResultsBucketArn}
+  lambda:
+    logRetentionInDays:
+      dev: 1
+      test: 3
+      prod: 7
+  sns:
+    notificationsTopicArn: ${ssm:/${self:custom.app}-common-infrastructure/NotificationsTopicArn}
+  s3:
+    deploymentBucketName:
+      dev: ${self:provider.region}.${self:custom.org}.${self:custom.app}.${self:custom.stage}.${self:custom.developer}.deploys
+      test: ${self:provider.region}.${self:custom.org}.${self:custom.app}.${self:custom.stage}.deploys
+      prod: ${self:provider.region}.${self:custom.org}.${self:custom.app}.${self:custom.stage}.deploys
+    dataLakeBucketName: ${ssm:/${self:custom.app}-common-infrastructure/DataLakeBucketName}
+    dataLakeBucketArn: ${ssm:/${self:custom.app}-common-infrastructure/DataLakeBucketArn}
+    artifactsBucketName: ${ssm:/${self:custom.app}-common-infrastructure/ArtifactsBucketName}
+    artifactsBucketArn: ${ssm:/${self:custom.app}-common-infrastructure/ArtifactsBucketArn}

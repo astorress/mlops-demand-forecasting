@@ -1,0 +1,77 @@
+# Plataforma base: buckets (data lake, artefactos de ML, resultados de
+# Athena), workgroup de Athena y tópico SNS de notificaciones. Los demás stacks
+# leen estos valores por SSM (/mlops-common-infrastructure/...). Se despliega
+# primero.
+service: common-infrastructure
+frameworkVersion: ^4.43.0
+configValidationMode: error
+
+provider:
+  name: aws
+  stage: dev
+  region: us-east-1
+  stackName: ${self:custom.app}-${self:service}
+  deploymentBucket:
+    name: ${self:custom.s3.deploymentBucketName.${self:custom.stage}}
+
+resources:
+  - ${file(s3.yml)}
+  - ${file(athena.yml)}
+  - ${file(sns.yml)}
+  - ${file(ssm.yml)}
+  - ${file(cfn-collisions.yml)}
+
+plugins:
+  - serverless-deployment-bucket
+  - '@serverless/safeguards-plugin'
+
+custom:
+  org: ${env:ORG}
+  app: mlops
+  stage: ${opt:stage, self:provider.stage}
+  safeguards:
+    - safeguard: framework-version
+      enforcementLevel: warning
+      config: ${self:frameworkVersion}
+    - safeguard: allowed-regions
+      enforcementLevel: error
+      config:
+        - ${self:provider.region}
+    - safeguard: no-wild-iam-role-statements
+      enforcementLevel: warning
+    - safeguard: allowed-stages
+      enforcementLevel: error
+      config:
+        - dev
+        - test
+        - prod
+  servicePrefix: ${self:custom.app}-${self:service}
+  developer: ${env:DEVELOPER}
+  # Los buckets que usan servicios de ML no llevan puntos (TLS virtual-hosted
+  # y algunas funciones de SageMaker fallan con nombres con puntos).
+  bucketPrefix:
+    dev: ${self:custom.org}-${self:custom.app}-${self:custom.stage}-${self:custom.developer}
+    test: ${self:custom.org}-${self:custom.app}-${self:custom.stage}
+    prod: ${self:custom.org}-${self:custom.app}-${self:custom.stage}
+  s3:
+    deploymentBucketName:
+      dev: ${self:provider.region}.${self:custom.org}.${self:custom.app}.${self:custom.stage}.${self:custom.developer}.deploys
+      test: ${self:provider.region}.${self:custom.org}.${self:custom.app}.${self:custom.stage}.deploys
+      prod: ${self:provider.region}.${self:custom.org}.${self:custom.app}.${self:custom.stage}.deploys
+    dataLakeBucketName: ${self:custom.bucketPrefix.${self:custom.stage}}-datalake
+    artifactsBucketName: ${self:custom.bucketPrefix.${self:custom.stage}}-artifacts
+    athenaResultsBucketName: ${self:custom.bucketPrefix.${self:custom.stage}}-athena
+    noncurrentVersionExpirationInDays:
+      dev: 7
+      test: 30
+      prod: 90
+    athenaResultsExpirationInDays:
+      dev: 1
+      test: 7
+      prod: 30
+  athena:
+    workGroupName: ${self:custom.app}
+    # Protección contra escaneos completos accidentales (10 GB por consulta).
+    bytesScannedCutoffPerQuery: 10737418240
+  sns:
+    notificationSubscriptions: ${file(../shared/email-subscriptions.js)}

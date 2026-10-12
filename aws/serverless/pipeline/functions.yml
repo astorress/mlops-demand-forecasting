@@ -1,0 +1,35 @@
+OnModelApproved:
+  name: ${self:custom.servicePrefix}-OnModelApproved
+  description: Model package aprobado → contrato de despliegue en SSM + notificación
+  handler: src/functions/registry/on_model_approved.handler
+  package:
+    patterns:
+      - ../../src/__init__.py
+      - ../../src/functions/__init__.py
+      - ../../src/functions/registry/*.py
+      - ../../src/services/__init__.py
+      - ../../src/services/sagemaker.py
+      - ../../src/services/sns.py
+      - ../../src/services/ssm.py
+      - ../../src/utilities/*.py
+  role: !GetAtt OnModelApprovedRole.Arn
+  timeout: 30
+  memorySize: 256
+  environment:
+    APPROVED_MODEL_PACKAGE_ARN_PARAMETER: /${self:custom.servicePrefix}/ApprovedModelPackageArn
+    APPROVED_BASELINE_CONSTRAINTS_PARAMETER: /${self:custom.servicePrefix}/ApprovedBaselineConstraintsUri
+    APPROVED_BASELINE_STATISTICS_PARAMETER: /${self:custom.servicePrefix}/ApprovedBaselineStatisticsUri
+    NOTIFICATIONS_TOPIC_ARN: ${self:custom.sns.notificationsTopicArn}
+    STAGE: ${self:custom.stage}
+  events:
+    - eventBridge:
+        pattern:
+          source:
+            - aws.sagemaker
+          detail-type:
+            - SageMaker Model Package State Change
+          detail:
+            ModelPackageGroupName:
+              - ${self:custom.registry.modelPackageGroupName}
+            ModelApprovalStatus:
+              - Approved

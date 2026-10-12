@@ -1,0 +1,74 @@
+Resources:
+  BatchScoringRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ${self:custom.servicePrefix}-BatchScoring
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ${self:custom.servicePrefix}-BatchScoring
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${self:custom.sagemaker.approvedModelPackageParameter}
+              # Athena UNLOAD: lee la tabla curada y escribe el input del batch.
+              - Effect: Allow
+                Action:
+                  - athena:StartQueryExecution
+                  - athena:GetQueryExecution
+                Resource: !Sub arn:aws:athena:${AWS::Region}:${AWS::AccountId}:workgroup/${self:custom.athena.workGroupName}
+              - Effect: Allow
+                Action:
+                  - glue:GetDatabase
+                  - glue:GetTable
+                  - glue:GetPartitions
+                Resource:
+                  - !Sub arn:aws:glue:${AWS::Region}:${AWS::AccountId}:catalog
+                  - !Sub arn:aws:glue:${AWS::Region}:${AWS::AccountId}:database/${self:custom.glue.databaseName}
+                  - !Sub arn:aws:glue:${AWS::Region}:${AWS::AccountId}:table/${self:custom.glue.databaseName}/*
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:GetBucketLocation
+                Resource:
+                  - ${self:custom.s3.dataLakeBucketArn}
+                  - ${self:custom.s3.artifactsBucketArn}
+                  - ${self:custom.athena.resultsBucketArn}
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: ${self:custom.s3.dataLakeBucketArn}/${self:custom.glue.curatedPrefix}/*
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:AbortMultipartUpload
+                Resource:
+                  - ${self:custom.s3.artifactsBucketArn}/${self:custom.batch.inputPrefix}/*
+                  - ${self:custom.athena.resultsBucketArn}/*
+              # Modelo desde el package aprobado + transform job.
+              - Effect: Allow
+                Action:
+                  - sagemaker:CreateModel
+                  - sagemaker:CreateTransformJob
+                  - sagemaker:AddTags
+                Resource:
+                  - !Sub arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:model/${self:custom.project}-*
+                  - !Sub arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:transform-job/${self:custom.project}-*
+              - Effect: Allow
+                Action: sagemaker:DescribeModelPackage
+                Resource: !Sub arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:model-package/${self:custom.sagemaker.modelPackageGroupName}/*
+              - Effect: Allow
+                Action: iam:PassRole
+                Resource: ${self:custom.sagemaker.executionRoleArn}
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: sagemaker.amazonaws.com

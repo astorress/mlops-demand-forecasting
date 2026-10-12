@@ -1,0 +1,62 @@
+Resources:
+  PredictRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ${self:custom.servicePrefix}-Predict
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ${self:custom.servicePrefix}-Predict
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: sagemaker:InvokeEndpoint
+                Resource: !Sub arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:endpoint/${self:custom.endpoint.name}
+
+  DataDriftRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ${self:custom.servicePrefix}-DataDrift
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ${self:custom.servicePrefix}-DataDrift
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: arn:aws:s3:::${self:custom.s3.artifactsBucketName}
+                Condition:
+                  StringLike:
+                    s3:prefix: ${self:custom.prefixes.dataCapture}/*
+              # Tráfico capturado y los baselines que registra el pipeline.
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource:
+                  - arn:aws:s3:::${self:custom.s3.artifactsBucketName}/${self:custom.prefixes.dataCapture}/*
+                  - arn:aws:s3:::${self:custom.s3.artifactsBucketName}/pipelines/${self:custom.project}/*
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: arn:aws:s3:::${self:custom.s3.artifactsBucketName}/${self:custom.prefixes.monitoring}/*
+              - Effect: Allow
+                Action: cloudwatch:PutMetricData
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    cloudwatch:namespace: ${self:custom.monitoring.metricNamespace}

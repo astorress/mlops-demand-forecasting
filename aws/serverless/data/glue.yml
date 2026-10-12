@@ -1,0 +1,177 @@
+Resources:
+  GlueDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: ${self:custom.glue.databaseName}
+        Description: Pronóstico de demanda eléctrica (raw, curated, predictions)
+
+  # Zona raw: esquema *descubierto* por un crawler (exploración en Athena).
+  # Crea la tabla `raw_demand_forecasting` particionada por ingestion_date.
+  RawCrawler:
+    Type: AWS::Glue::Crawler
+    Properties:
+      Name: ${self:custom.glue.crawlerName}
+      Role: !GetAtt GlueRole.Arn
+      DatabaseName: !Ref GlueDatabase
+      TablePrefix: ${self:custom.glue.rawTablePrefix}
+      Targets:
+        S3Targets:
+          - Path: s3://${self:custom.s3.dataLakeBucketName}/${self:custom.prefixes.raw}/
+      SchemaChangePolicy:
+        UpdateBehavior: UPDATE_IN_DATABASE
+        DeleteBehavior: LOG
+      Configuration: '{"Version":1.0,"Grouping":{"TableGroupingPolicy":"CombineCompatibleSchemas"},"CrawlerOutput":{"Partitions":{"AddOrUpdateBehavior":"InheritFromTable"}}}'
+
+  # Zona curada: esquema *declarado* como código — es el contrato de datos que
+  # leen el pipeline de entrenamiento y el batch scoring. Partition
+  # projection: Athena calcula las particiones (rutas estilo Hive bajo
+  # Location), sin MSCK REPAIR ni crawler. `timestamp` es string
+  # 'yyyy-MM-dd HH:mm:ss' (hora local, sin zona): en SQL va entre comillas
+  # dobles porque es palabra reservada.
+  CuratedTable:
+    Type: AWS::Glue::Table
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseName: !Ref GlueDatabase
+      TableInput:
+        Name: ${self:custom.glue.curatedTableName}
+        Description: Demanda horaria con calendario, lags y media móvil (una fila por hora e ingesta)
+        TableType: EXTERNAL_TABLE
+        Parameters:
+          classification: parquet
+          projection.enabled: 'true'
+          projection.ingestion_date.type: date
+          projection.ingestion_date.format: yyyy-MM-dd
+          projection.ingestion_date.range: 2024-01-01,NOW
+          projection.ingestion_date.interval: '1'
+          projection.ingestion_date.interval.unit: DAYS
+        PartitionKeys:
+          - Name: ingestion_date
+            Type: string
+        StorageDescriptor:
+          Location: s3://${self:custom.s3.dataLakeBucketName}/${self:custom.prefixes.curated}/
+          InputFormat: org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat
+          OutputFormat: org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat
+          SerdeInfo:
+            SerializationLibrary: org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe
+          Columns:
+            - { Name: timestamp, Type: string }
+            - { Name: temperature_c, Type: double }
+            - { Name: hour, Type: int }
+            - { Name: day_of_week, Type: int }
+            - { Name: month, Type: int }
+            - { Name: is_weekend, Type: int }
+            - { Name: is_holiday, Type: int }
+            - { Name: demand_lag_24h, Type: double }
+            - { Name: demand_lag_168h, Type: double }
+            - { Name: demand_rolling_mean_7d, Type: double }
+            - { Name: demand_kwh, Type: double }
+
+  # Salida de Batch Transform (serverless/batch): timestamp,demand_kwh_forecast.
+  PredictionsTable:
+    Type: AWS::Glue::Table
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseName: !Ref GlueDatabase
+      TableInput:
+        Name: ${self:custom.glue.predictionsTableName}
+        Description: Pronóstico de demanda por hora, por fecha de ejecución del batch
+        TableType: EXTERNAL_TABLE
+        Parameters:
+          classification: csv
+          projection.enabled: 'true'
+          projection.run_date.type: date
+          projection.run_date.format: yyyy-MM-dd
+          projection.run_date.range: 2024-01-01,NOW
+          projection.run_date.interval: '1'
+          projection.run_date.interval.unit: DAYS
+        PartitionKeys:
+          - Name: run_date
+            Type: string
+        StorageDescriptor:
+          Location: s3://${self:custom.s3.dataLakeBucketName}/${self:custom.prefixes.predictions}/
+          InputFormat: org.apache.hadoop.mapred.TextInputFormat
+          OutputFormat: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+          SerdeInfo:
+            SerializationLibrary: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
+            Parameters:
+              field.delim: ','
+          Columns:
+            - { Name: timestamp, Type: string }
+            - { Name: demand_kwh_forecast, Type: double }
+
+  CurateJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: ${self:custom.glue.jobName}
+      Description: CSV raw → Parquet curado (calendario, lags) + gate de Glue Data Quality
+      Role: !GetAtt GlueRole.Arn
+      GlueVersion: '${self:custom.glue.version}'
+      WorkerType: ${self:custom.glue.workerType}
+      NumberOfWorkers: ${self:custom.glue.numberOfWorkers}
+      Timeout: 30
+      MaxRetries: 0
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      Command:
+        Name: glueetl
+        PythonVersion: '3'
+        ScriptLocation: s3://${self:custom.s3.artifactsBucketName}/${self:custom.prefixes.code}/curate_demand.py
+      DefaultArguments:
+        '--job-language': python
+        '--enable-metrics': 'true'
+        '--enable-continuous-cloudwatch-log': 'true'
+        '--enable-glue-datacatalog': 'true'
+        '--TempDir': s3://${self:custom.s3.artifactsBucketName}/${self:custom.prefixes.glueTemp}/
+        '--RAW_PATH': s3://${self:custom.s3.dataLakeBucketName}/${self:custom.prefixes.raw}/
+        '--CURATED_PATH': s3://${self:custom.s3.dataLakeBucketName}/${self:custom.prefixes.curated}/
+        '--INGESTION_DATE': latest
+        '--DQ_RULESET': ${self:custom.glue.dataQualityRuleset}
+
+  CuratedDataQualityRuleset:
+    Type: AWS::Glue::DataQualityRuleset
+    Properties:
+      Name: ${self:custom.servicePrefix}-Curated
+      Description: Las mismas reglas que aplica el job de curación
+      Ruleset: ${self:custom.glue.dataQualityRuleset}
+      TargetTable:
+        DatabaseName: !Ref GlueDatabase
+        TableName: !Ref CuratedTable
+
+  # Orquestación del flujo de datos: EVENTO (archivo raw nuevo) → crawler →
+  # (crawler SUCCEEDED) → job de curación.
+  IngestionWorkflow:
+    Type: AWS::Glue::Workflow
+    Properties:
+      Name: ${self:custom.glue.workflowName}
+      Description: Datos raw nuevos → crawl → curar (+ data quality)
+      MaxConcurrentRuns: 1
+
+  IngestionStartTrigger:
+    Type: AWS::Glue::Trigger
+    Properties:
+      Name: ${self:custom.servicePrefix}-OnRawData
+      WorkflowName: !Ref IngestionWorkflow
+      Type: EVENT
+      EventBatchingCondition:
+        BatchSize: 100
+        BatchWindow: ${self:custom.glue.eventBatchWindow}
+      Actions:
+        - CrawlerName: !Ref RawCrawler
+
+  CurateTrigger:
+    Type: AWS::Glue::Trigger
+    Properties:
+      Name: ${self:custom.servicePrefix}-OnRawCrawled
+      WorkflowName: !Ref IngestionWorkflow
+      Type: CONDITIONAL
+      StartOnCreation: true
+      Predicate:
+        Conditions:
+          - LogicalOperator: EQUALS
+            CrawlerName: !Ref RawCrawler
+            CrawlState: SUCCEEDED
+      Actions:
+        - JobName: !Ref CurateJob

@@ -1,0 +1,10 @@
+# Contexto de build de la imagen del modelo (container/Dockerfile): solo lo que copia.
+*
+!container/requirements.txt
+!container/entrypoint.sh
+!src/__init__.py
+!src/features/**/*.py
+!src/models/**/*.py
+!src/monitoring/**/*.py
+!src/pipelines/**/*.py
+!src/serving/**/*.py

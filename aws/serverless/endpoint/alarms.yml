@@ -1,0 +1,65 @@
+Resources:
+  # También dispara el rollback automático del blue/green (ver ForecastEndpoint).
+  Invocation5XXErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: ${self:custom.servicePrefix}-Invocation5XXErrors
+      AlarmDescription: El modelo de demanda está fallando peticiones
+      Namespace: AWS/SageMaker
+      MetricName: Invocation5XXErrors
+      Dimensions:
+        - Name: EndpointName
+          Value: ${self:custom.endpoint.name}
+        - Name: VariantName
+          Value: AllTraffic
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - ${self:custom.sns.notificationsTopicArn}
+
+  ModelLatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: ${self:custom.servicePrefix}-ModelLatency
+      AlarmDescription: Latencia p90 del modelo por encima de 500 ms
+      Namespace: AWS/SageMaker
+      MetricName: ModelLatency
+      Dimensions:
+        - Name: EndpointName
+          Value: ${self:custom.endpoint.name}
+        - Name: VariantName
+          Value: AllTraffic
+      ExtendedStatistic: p90
+      Period: 300
+      EvaluationPeriods: 3
+      # ModelLatency se reporta en microsegundos.
+      Threshold: 500000
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - ${self:custom.sns.notificationsTopicArn}
+
+  # Data drift: lo publica la Lambda DataDrift (PSI máximo entre features).
+  FeatureDriftAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: ${self:custom.servicePrefix}-DataDrift
+      AlarmDescription: El tráfico se alejó del baseline de entrenamiento (PSI máximo sobre el umbral) — dispara el reentrenamiento
+      Namespace: ${self:custom.monitoring.metricNamespace}
+      MetricName: MaxFeatureDrift
+      Dimensions:
+        - Name: Endpoint
+          Value: ${self:custom.endpoint.name}
+      Statistic: Maximum
+      # Una métrica por día (schedule de la Lambda DataDrift).
+      Period: 86400
+      EvaluationPeriods: 1
+      Threshold: ${self:custom.monitoring.driftThreshold}
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - ${self:custom.sns.notificationsTopicArn}
